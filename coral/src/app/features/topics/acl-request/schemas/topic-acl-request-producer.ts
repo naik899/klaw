@@ -5,6 +5,7 @@ import {
   acl_ssl,
   topicname,
   environment,
+  teamname,
 } from "src/app/features/topics/acl-request/schemas/topic-acl-request-shared-fields";
 import { validateAclPrincipleValue } from "src/app/features/topics/acl-request/schemas/validation";
 import { z } from "zod";
@@ -24,6 +25,7 @@ const topicProducerFormSchema = z
     environment,
     topictype,
     transactionalId,
+    teamname,
   })
   // We check if the user has entered valid values for acl_ssl or acl_ip
   .refine(({ aclIpPrincipleType, acl_ssl, acl_ip }) => {

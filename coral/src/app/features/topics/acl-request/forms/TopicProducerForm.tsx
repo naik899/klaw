@@ -1,4 +1,6 @@
 import {
+  Alert,
+  Box,
   Divider,
   Grid,
   GridItem,
@@ -7,7 +9,8 @@ import {
 } from "@aivenio/aquarium";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { FieldErrorsImpl, UseFormReturn } from "react-hook-form";
+import { UseFormReturn } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import {
   Form,
   RadioButtonGroup,
@@ -21,13 +24,14 @@ import IpOrPrincipalField from "src/app/features/topics/acl-request/fields/IpOrP
 import RemarksField from "src/app/features/topics/acl-request/fields/RemarksField";
 import TopicNameOrPrefixField from "src/app/features/topics/acl-request/fields/TopicNameOrPrefixField";
 import { TopicProducerFormSchema } from "src/app/features/topics/acl-request/schemas/topic-acl-request-producer";
+import { createAclRequest } from "src/domain/acl/acl-api";
 import { ClusterInfo, Environment } from "src/domain/environment";
+import { parseErrorMsg } from "src/services/mutation-utils";
 
 // eslint-disable-next-line import/exports-last
 export interface TopicProducerFormProps {
   topicProducerForm: UseFormReturn<TopicProducerFormSchema>;
   topicNames: string[];
-  topicTeam: string;
   environments: Environment[];
   renderAclTypeField: () => JSX.Element;
   clusterInfo?: ClusterInfo;
@@ -36,11 +40,11 @@ export interface TopicProducerFormProps {
 const TopicProducerForm = ({
   topicProducerForm,
   topicNames,
-  topicTeam,
   environments,
   renderAclTypeField,
   clusterInfo,
 }: TopicProducerFormProps) => {
+  const navigate = useNavigate();
   const { aclIpPrincipleType, aclPatternType } = topicProducerForm.getValues();
   const { current: initialAclIpPrincipleType } = useRef(aclIpPrincipleType);
   const { current: initialAclPatternType } = useRef(aclPatternType);
@@ -68,80 +72,86 @@ const TopicProducerForm = ({
     topicProducerForm.resetField("topicname");
   }, [aclPatternType]);
 
-  const { mutate } = useMutation(() => Promise.resolve());
+  const { mutate, isLoading, isError, error } = useMutation({
+    mutationFn: createAclRequest,
+    // onSuccess: () => {
+    //   console.log("calling navigate");
+    //   navigate(-1);
+    // },
+  });
+
   const onSubmitTopicProducer: SubmitHandler<TopicProducerFormSchema> = (
-    data
+    formData
   ) => {
-    console.log(data, topicTeam);
-    mutate();
+    mutate(formData);
+    return navigate(-1);
   };
-  const onErrorTopicProducer = (
-    err: Partial<FieldErrorsImpl<TopicProducerFormSchema>>
-  ) => {
-    console.log("Form error", err);
-  };
+
   return (
-    <Form
-      {...topicProducerForm}
-      onSubmit={onSubmitTopicProducer}
-      onError={onErrorTopicProducer}
-    >
-      <Grid cols="2" minWidth={"fit"} colGap={"9"}>
-        <GridItem>{renderAclTypeField()}</GridItem>
-        <GridItem>
-          <EnvironmentField environments={environments} />
-        </GridItem>
+    <>
+      {isError && (
+        <Box marginBottom={"l1"} role="alert">
+          <Alert description={parseErrorMsg(error)} type="warning" />
+        </Box>
+      )}
+      <Form {...topicProducerForm} onSubmit={onSubmitTopicProducer}>
+        <Grid cols="2" minWidth={"fit"} colGap={"9"}>
+          <GridItem>{renderAclTypeField()}</GridItem>
+          <GridItem>
+            <EnvironmentField environments={environments} />
+          </GridItem>
 
-        <GridItem colSpan={"span-2"} paddingBottom={"l2"}>
-          <Divider />
-        </GridItem>
+          <GridItem colSpan={"span-2"} paddingBottom={"l2"}>
+            <Divider />
+          </GridItem>
 
-        <GridItem>
-          <RadioButtonGroup
-            name="aclPatternType"
-            labelText="Topic pattern type"
-            required
-          >
-            <BaseRadioButton value="LITERAL">Literal</BaseRadioButton>
-            <BaseRadioButton value="PREFIXED">Prefixed</BaseRadioButton>
-          </RadioButtonGroup>
-        </GridItem>
-        <GridItem>
-          <TopicNameOrPrefixField
-            topicNames={topicNames}
-            aclPatternType={aclPatternType}
-          />
-        </GridItem>
+          <GridItem>
+            <RadioButtonGroup
+              name="aclPatternType"
+              labelText="Topic pattern type"
+              required
+            >
+              <BaseRadioButton value="LITERAL">Literal</BaseRadioButton>
+              <BaseRadioButton value="PREFIXED">Prefixed</BaseRadioButton>
+            </RadioButtonGroup>
+          </GridItem>
+          <GridItem>
+            <TopicNameOrPrefixField
+              topicNames={topicNames}
+              aclPatternType={aclPatternType}
+            />
+          </GridItem>
 
-        <GridItem colSpan={"span-2"}>
-          <TextInput
-            name="transactionalId"
-            labelText="Transactional ID"
-            placeholder="Necessary for exactly-once semantics on producer"
-            helperText="Necessary for exactly-once semantics on producer"
-          />
-        </GridItem>
+          <GridItem colSpan={"span-2"}>
+            <TextInput
+              name="transactionalId"
+              labelText="Transactional ID"
+              placeholder="Necessary for exactly-once semantics on producer"
+              helperText="Necessary for exactly-once semantics on producer"
+            />
+          </GridItem>
 
-        <GridItem>
-          <AclIpPrincipleTypeField clusterInfo={clusterInfo} />
-        </GridItem>
-        <GridItem>
-          <IpOrPrincipalField aclIpPrincipleType={aclIpPrincipleType} />
-        </GridItem>
-        <GridItem colSpan={"span-2"} minWidth={"full"}>
-          <RemarksField />
-        </GridItem>
-      </Grid>
+          <GridItem>
+            <AclIpPrincipleTypeField clusterInfo={clusterInfo} />
+          </GridItem>
+          <GridItem>
+            <IpOrPrincipalField aclIpPrincipleType={aclIpPrincipleType} />
+          </GridItem>
+          <GridItem colSpan={"span-2"} minWidth={"full"}>
+            <RemarksField />
+          </GridItem>
+        </Grid>
 
-      <Grid cols={"2"} colGap={"4"} width={"fit"}>
-        <GridItem>
-          <SubmitButton>Submit</SubmitButton>
-        </GridItem>
-        <GridItem>
-          <SecondaryButton>Cancel</SecondaryButton>
-        </GridItem>
-      </Grid>
-    </Form>
+        <Grid cols={"2"} colGap={"4"} width={"fit"}>
+          <GridItem>
+            <SubmitButton loading={isLoading}>Submit</SubmitButton>
+          </GridItem>
+          <GridItem>
+            <SecondaryButton disabled={isLoading}>Cancel</SecondaryButton>
+          </GridItem>
+        </Grid>
+      </Form>
+    </>
   );
 };
 

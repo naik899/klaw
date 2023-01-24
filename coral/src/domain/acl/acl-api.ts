@@ -1,6 +1,6 @@
 import {
-  CreateAclRequestTopicTypeProducer,
   CreateAclRequestTopicTypeConsumer,
+  CreateAclRequestTopicTypeProducer,
 } from "src/domain/acl/acl-types";
 import api from "src/services/api";
 import { KlawApiRequest, KlawApiResponse } from "types/utils";

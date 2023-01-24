@@ -12,7 +12,6 @@ import { customRender } from "src/services/test-utils/render-with-wrappers";
 
 const baseProps = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -30,7 +29,6 @@ const baseProps = {
 
 const basePropsIsAivenCluster = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -49,7 +47,6 @@ const basePropsIsAivenCluster = {
 
 const basePropsNotAivenCluster = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -81,7 +78,7 @@ describe("<TopicProducerForm />", () => {
       );
       customRender(
         <TopicProducerForm {...baseProps} topicProducerForm={result.current} />,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 
@@ -205,7 +202,7 @@ describe("<TopicProducerForm />", () => {
           {...basePropsIsAivenCluster}
           topicProducerForm={result.current}
         />,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 
@@ -331,7 +328,7 @@ describe("<TopicProducerForm />", () => {
           {...basePropsNotAivenCluster}
           topicProducerForm={result.current}
         />,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 

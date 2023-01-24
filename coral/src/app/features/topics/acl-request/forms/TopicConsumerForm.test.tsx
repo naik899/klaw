@@ -13,7 +13,6 @@ import { customRender } from "src/services/test-utils/render-with-wrappers";
 
 const baseProps = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -31,7 +30,6 @@ const baseProps = {
 
 const basePropsIsAivenCluster = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -50,7 +48,6 @@ const basePropsIsAivenCluster = {
 
 const basePropsNotAivenCluster = {
   topicNames: ["aiventopic1", "aiventopic2", "othertopic"],
-  topicTeam: "ospo",
   environments: [
     createEnvironment({
       name: "DEV",
@@ -87,7 +84,7 @@ describe("<TopicConsumerForm />", () => {
             topicConsumerForm={result.current}
           />
         </AquariumContext>,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 
@@ -218,7 +215,7 @@ describe("<TopicConsumerForm />", () => {
             topicConsumerForm={result.current}
           />
         </AquariumContext>,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 
@@ -332,7 +329,7 @@ describe("<TopicConsumerForm />", () => {
             topicConsumerForm={result.current}
           />
         </AquariumContext>,
-        { queryClient: true }
+        { queryClient: true, memoryRouter: true }
       );
     });
 

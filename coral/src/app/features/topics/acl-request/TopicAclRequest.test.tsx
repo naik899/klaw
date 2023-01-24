@@ -3,6 +3,7 @@ import { waitForElementToBeRemoved } from "@testing-library/react/pure";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import TopicAclRequest from "src/app/features/topics/acl-request/TopicAclRequest";
+import { mockCreateAclRequest } from "src/domain/acl/acl-api-msw";
 import {
   getMockedResponseGetClusterInfoFromEnv,
   mockGetClusterInfoFromEnv,
@@ -14,9 +15,17 @@ import {
   mockedResponseTopicTeamLiteral,
   mockGetTopicNames,
   mockGetTopicTeam,
+  mockRequestTopic,
 } from "src/domain/topic/topic-api.msw";
+import api from "src/services/api";
 import { server } from "src/services/api-mocks/server";
 import { customRender } from "src/services/test-utils/render-with-wrappers";
+
+const mockedNavigate = jest.fn();
+jest.mock("react-router-dom", () => ({
+  ...jest.requireActual("react-router-dom"),
+  useNavigate: () => mockedNavigate,
+}));
 
 const dataSetup = ({ isAivenCluster }: { isAivenCluster: boolean }) => {
   mockGetEnvironments({
@@ -177,7 +186,9 @@ describe("<TopicAclRequest />", () => {
       await userEvent.click(aclConsumerTypeInput);
 
       // Only rendered in Consumer form
-      const consumerGroupInput = screen.getByLabelText("Consumer group*");
+      const consumerGroupInput = screen.getByRole("textbox", {
+        name: "Consumer group *",
+      });
 
       expect(aclConsumerTypeInput).toBeChecked();
       expect(aclProducerTypeInput).not.toBeChecked();
@@ -185,9 +196,9 @@ describe("<TopicAclRequest />", () => {
     });
   });
 
-  describe("User interaction (TopicProducerForm)", () => {
-    beforeEach(() => {
-      dataSetup({ isAivenCluster: false });
+  describe("Form submission (Producer)", () => {
+    beforeEach(async () => {
+      dataSetup({ isAivenCluster: true });
 
       customRender(
         <Routes>
@@ -204,171 +215,123 @@ describe("<TopicAclRequest />", () => {
       );
     });
 
-    afterEach(cleanup);
+    afterEach(() => {
+      cleanup();
+      jest.clearAllMocks();
+    });
 
-    it("renders correct fields when selecting IP or Principal in AclIpPrincipleTypeField", async () => {
-      await assertSkeleton();
-
-      const ipField = screen.getByRole("radio", { name: "IP" });
-      const principalField = screen.getByRole("radio", {
-        name: "Principal",
+    describe("when API returns an error", () => {
+      beforeEach(async () => {
+        mockCreateAclRequest({
+          mswInstance: server,
+          response: {
+            data: { message: "Error message example" },
+            status: 400,
+          },
+        });
       });
-      const hiddenIpsField = screen.queryByRole("textbox", {
-        name: "IP addresses *",
-      });
-      const hiddenPrincipalsField = screen.queryByRole("textbox", {
-        name: "SSL DN strings / Usernames *",
-      });
 
-      expect(ipField).toBeVisible();
-      expect(ipField).not.toBeEnabled();
-      expect(ipField).not.toBeChecked();
-      expect(principalField).toBeVisible();
-      expect(principalField).not.toBeEnabled();
-      expect(principalField).not.toBeChecked();
-      expect(hiddenIpsField).toBeNull();
-      expect(hiddenPrincipalsField).toBeNull();
+      it("renders an error message", async () => {
+        const spyPost = jest.spyOn(api, "post");
+        await assertSkeleton();
+        const submitButton = screen.getByRole("button", { name: "Submit" });
 
-      await selectEnvironment();
-
-      await waitFor(() => expect(principalField).toBeEnabled());
-
-      await userEvent.click(principalField);
-
-      await waitFor(() => expect(principalField).toBeChecked());
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
+        // Fill form with valid data
+        await userEvent.selectOptions(
+          screen.getByRole("combobox", {
+            name: "Select environment *",
+          }),
+          "DEV"
+        );
+        await userEvent.click(screen.getByRole("radio", { name: "Literal" }));
+        const principalField = await screen.findByRole("textbox", {
           name: "SSL DN strings / Usernames *",
-        })
-      );
+        });
+        await userEvent.type(principalField, "Alice");
+        await userEvent.tab();
 
-      const visiblePrincipalsField = screen.getByRole("textbox", {
-        name: "SSL DN strings / Usernames *",
+        await waitFor(() => expect(submitButton).toBeEnabled());
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(submitButton).toBeDisabled();
+        });
+
+        expect(spyPost).toHaveBeenCalledTimes(1);
+        expect(spyPost).toHaveBeenCalledWith("/createAcl", {
+          remarks: "",
+          aclIpPrincipleType: "PRINCIPAL",
+          acl_ssl: ["Alice"],
+          aclPatternType: "LITERAL",
+          topicname: "aivtopic1",
+          environment: "2",
+          topictype: "Producer",
+          transactionalId: "",
+          teamname: "Ospo",
+        });
+
+        const alert = await screen.findByRole("alert");
+        expect(alert).toHaveTextContent("Error message example");
       });
-      expect(visiblePrincipalsField).toBeInTheDocument();
-      expect(visiblePrincipalsField).toBeEnabled();
-
-      await userEvent.tripleClick(ipField);
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
-      });
-      expect(visibleIpsField).toBeInTheDocument();
-      expect(visibleIpsField).toBeEnabled();
     });
 
-    it("error when entering invalid IP in IPs field", async () => {
-      await assertSkeleton();
-
-      const ipField = screen.getByRole("radio", { name: "IP" });
-
-      await selectEnvironment();
-
-      await waitFor(() => expect(ipField).toBeEnabled());
-
-      await userEvent.click(ipField);
-
-      await waitFor(() => expect(ipField).toBeChecked());
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
+    describe("when API request is successful", () => {
+      beforeEach(async () => {
+        mockRequestTopic({
+          mswInstance: server,
+          response: { data: { status: "200 OK" } },
+        });
       });
 
-      await userEvent.type(visibleIpsField, "invalid{Enter}");
-      await waitFor(() => expect(visibleIpsField).toBeInvalid());
-    });
+      it("redirects user to myTopicRequests", async () => {
+        const spyPost = jest.spyOn(api, "post");
+        await assertSkeleton();
+        const submitButton = screen.getByRole("button", { name: "Submit" });
 
-    it("does not error when entering valid IP in IPs field", async () => {
-      await assertSkeleton();
+        // Fill form with valid data
+        await userEvent.selectOptions(
+          screen.getByRole("combobox", {
+            name: "Select environment *",
+          }),
+          "DEV"
+        );
+        await userEvent.click(screen.getByRole("radio", { name: "Literal" }));
+        const principalField = await screen.findByRole("textbox", {
+          name: "SSL DN strings / Usernames *",
+        });
+        await userEvent.type(principalField, "Alice");
+        await userEvent.tab();
 
-      const ipField = screen.getByRole("radio", { name: "IP" });
+        await waitFor(() => expect(submitButton).toBeEnabled());
+        await userEvent.click(submitButton);
 
-      await selectEnvironment();
+        await waitFor(() => {
+          expect(submitButton).toBeDisabled();
+        });
 
-      await waitFor(() => expect(ipField).toBeEnabled());
+        expect(spyPost).toHaveBeenCalledTimes(1);
+        expect(spyPost).toHaveBeenCalledWith("/createAcl", {
+          remarks: "",
+          aclIpPrincipleType: "PRINCIPAL",
+          acl_ssl: ["Alice"],
+          aclPatternType: "LITERAL",
+          topicname: "aivtopic1",
+          environment: "2",
+          topictype: "Producer",
+          transactionalId: "",
+          teamname: "Ospo",
+        });
 
-      await userEvent.click(ipField);
-
-      await waitFor(() => expect(ipField).toBeChecked());
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
+        await waitFor(() => {
+          expect(mockedNavigate).toHaveBeenCalledTimes(1);
+          expect(mockedNavigate).toHaveBeenCalledWith(-1);
+        });
       });
-
-      await userEvent.type(visibleIpsField, "111.111.11.11{Enter}");
-      expect(visibleIpsField).toBeValid();
-    });
-
-    it("renders correct fields when selecting Literal or Prefixed in aclPatternType fields", async () => {
-      await assertSkeleton();
-
-      const literalField = screen.getByRole("radio", { name: "Literal" });
-      const prefixedField = screen.getByRole("radio", {
-        name: "Prefixed",
-      });
-      const hiddenTopicNameField = screen.queryByRole("combobox", {
-        name: "Topic name *",
-      });
-      const hiddenPrefixField = screen.queryByRole("textbox", {
-        name: "Prefix *",
-      });
-
-      expect(literalField).toBeVisible();
-      expect(literalField).toBeEnabled();
-      expect(literalField).not.toBeChecked();
-      expect(prefixedField).toBeVisible();
-      expect(prefixedField).toBeEnabled();
-      expect(prefixedField).not.toBeChecked();
-      expect(hiddenTopicNameField).toBeNull();
-      expect(hiddenPrefixField).toBeNull();
-
-      await userEvent.click(literalField);
-
-      const visibleTopicNameField = await screen.findByRole("combobox", {
-        name: "Topic name *",
-      });
-
-      expect(hiddenPrefixField).toBeNull();
-      expect(visibleTopicNameField).toBeInTheDocument();
-      expect(visibleTopicNameField).toBeEnabled();
-      expect(visibleTopicNameField).toHaveDisplayValue("aivtopic1");
-
-      await userEvent.click(prefixedField);
-      expect(prefixedField).toBeChecked();
-
-      const visiblePrefixField = await screen.findByRole("textbox", {
-        name: "Prefix *",
-      });
-
-      expect(hiddenTopicNameField).toBeNull();
-      expect(visiblePrefixField).toBeInTheDocument();
-      expect(visiblePrefixField).toBeEnabled();
-      expect(visiblePrefixField).toHaveDisplayValue("aivtopic1");
     });
   });
-
-  describe("User interaction (TopicConsumerForm)", () => {
-    beforeEach(() => {
-      dataSetup({ isAivenCluster: false });
+  describe("Form submission (Consumer)", () => {
+    beforeEach(async () => {
+      dataSetup({ isAivenCluster: true });
 
       customRender(
         <Routes>
@@ -385,133 +348,143 @@ describe("<TopicAclRequest />", () => {
       );
     });
 
-    afterEach(cleanup);
+    afterEach(() => {
+      cleanup();
+      jest.clearAllMocks();
+    });
 
-    it("renders correct fields when selecting IP or Principal in AclIpPrincipleTypeField", async () => {
-      await assertSkeleton();
-
-      const aclConsumerTypeInput = screen.getByRole("radio", {
-        name: "Consumer",
-      });
-      await userEvent.click(aclConsumerTypeInput);
-
-      const ipField = screen.getByRole("radio", { name: "IP" });
-      const principalField = screen.getByRole("radio", {
-        name: "Principal",
-      });
-      const hiddenIpsField = screen.queryByRole("textbox", {
-        name: "IP addresses *",
-      });
-      const hiddenPrincipalsField = screen.queryByRole("textbox", {
-        name: "SSL DN strings / Usernames *",
+    describe("when API returns an error", () => {
+      beforeEach(async () => {
+        mockCreateAclRequest({
+          mswInstance: server,
+          response: {
+            data: { message: "Error message example" },
+            status: 400,
+          },
+        });
       });
 
-      expect(ipField).toBeVisible();
-      expect(ipField).not.toBeEnabled();
-      expect(ipField).not.toBeChecked();
-      expect(principalField).toBeVisible();
-      expect(principalField).not.toBeEnabled();
-      expect(principalField).not.toBeChecked();
-      expect(hiddenIpsField).toBeNull();
-      expect(hiddenPrincipalsField).toBeNull();
+      it("renders an error message", async () => {
+        const spyPost = jest.spyOn(api, "post");
+        await assertSkeleton();
 
-      await selectEnvironment();
+        const aclConsumerTypeInput = screen.getByRole("radio", {
+          name: "Consumer",
+        });
+        await userEvent.click(aclConsumerTypeInput);
 
-      await waitFor(() => expect(principalField).toBeEnabled());
+        const submitButton = screen.getByRole("button", {
+          name: "Submit",
+        });
 
-      await userEvent.click(principalField);
+        // Fill form with valid data
+        await userEvent.selectOptions(
+          screen.getByRole("combobox", {
+            name: "Select environment *",
+          }),
+          "DEV"
+        );
 
-      await waitFor(() => expect(principalField).toBeChecked());
+        const consumerGroupInput = screen.getByRole("textbox", {
+          name: "Consumer group *",
+        });
+        await userEvent.type(consumerGroupInput, "Group");
 
-      await waitFor(() =>
-        screen.findByRole("textbox", {
+        const principalField = await screen.findByRole("textbox", {
           name: "SSL DN strings / Usernames *",
-        })
-      );
+        });
+        await userEvent.type(principalField, "Alice");
+        await userEvent.tab();
 
-      const visiblePrincipalsField = screen.getByRole("textbox", {
-        name: "SSL DN strings / Usernames *",
+        await waitFor(() => expect(submitButton).toBeEnabled());
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(submitButton).toBeDisabled();
+        });
+
+        expect(spyPost).toHaveBeenCalledTimes(1);
+        expect(spyPost).toHaveBeenCalledWith("/createAcl", {
+          remarks: "",
+          aclIpPrincipleType: "PRINCIPAL",
+          acl_ssl: ["Alice"],
+          aclPatternType: "LITERAL",
+          topicname: "aivtopic1",
+          environment: "2",
+          topictype: "Consumer",
+          teamname: "Ospo",
+          consumergroup: "Group",
+        });
+
+        const alert = await screen.findByRole("alert");
+        expect(alert).toHaveTextContent("Error message example");
       });
-      expect(visiblePrincipalsField).toBeInTheDocument();
-      expect(visiblePrincipalsField).toBeEnabled();
-
-      await userEvent.tripleClick(ipField);
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
-      });
-      expect(visibleIpsField).toBeInTheDocument();
-      expect(visibleIpsField).toBeEnabled();
     });
 
-    it("error when entering invalid IP in IPs field", async () => {
-      await assertSkeleton();
-
-      const aclConsumerTypeInput = screen.getByRole("radio", {
-        name: "Consumer",
-      });
-      await userEvent.click(aclConsumerTypeInput);
-
-      const ipField = screen.getByRole("radio", { name: "IP" });
-
-      await selectEnvironment();
-
-      await waitFor(() => expect(ipField).toBeEnabled());
-
-      await userEvent.tripleClick(ipField);
-
-      await waitFor(() => expect(ipField).toBeChecked());
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
+    describe("when API request is successful", () => {
+      beforeEach(async () => {
+        mockRequestTopic({
+          mswInstance: server,
+          response: { data: { status: "200 OK" } },
+        });
       });
 
-      await userEvent.type(visibleIpsField, "invalid{Enter}");
-      await waitFor(() => expect(visibleIpsField).toBeInvalid());
-    });
+      it("redirects user to myTopicRequests", async () => {
+        const spyPost = jest.spyOn(api, "post");
+        await assertSkeleton();
 
-    it("does not error when entering valid IP in IPs field", async () => {
-      await assertSkeleton();
+        const aclConsumerTypeInput = screen.getByRole("radio", {
+          name: "Consumer",
+        });
+        await userEvent.click(aclConsumerTypeInput);
 
-      const aclConsumerTypeInput = screen.getByRole("radio", {
-        name: "Consumer",
+        const submitButton = screen.getByRole("button", {
+          name: "Submit",
+        });
+
+        // Fill form with valid data
+        await userEvent.selectOptions(
+          screen.getByRole("combobox", {
+            name: "Select environment *",
+          }),
+          "DEV"
+        );
+        const consumerGroupInput = screen.getByRole("textbox", {
+          name: "Consumer group *",
+        });
+        await userEvent.type(consumerGroupInput, "Group");
+
+        const principalField = await screen.findByRole("textbox", {
+          name: "SSL DN strings / Usernames *",
+        });
+        await userEvent.type(principalField, "Alice");
+        await userEvent.tab();
+
+        await waitFor(() => expect(submitButton).toBeEnabled());
+        await userEvent.click(submitButton);
+
+        await waitFor(() => {
+          expect(submitButton).toBeDisabled();
+        });
+
+        expect(spyPost).toHaveBeenCalledTimes(1);
+        expect(spyPost).toHaveBeenCalledWith("/createAcl", {
+          remarks: "",
+          aclIpPrincipleType: "PRINCIPAL",
+          acl_ssl: ["Alice"],
+          aclPatternType: "LITERAL",
+          topicname: "aivtopic1",
+          environment: "2",
+          topictype: "Consumer",
+          teamname: "Ospo",
+          consumergroup: "Group",
+        });
+
+        await waitFor(() => {
+          expect(mockedNavigate).toHaveBeenCalledTimes(1);
+          expect(mockedNavigate).toHaveBeenCalledWith(-1);
+        });
       });
-      await userEvent.click(aclConsumerTypeInput);
-
-      const ipField = screen.getByRole("radio", { name: "IP" });
-
-      await selectEnvironment();
-
-      await waitFor(() => expect(ipField).toBeEnabled());
-
-      await userEvent.click(ipField);
-
-      await waitFor(() => expect(ipField).toBeChecked());
-
-      await waitFor(() =>
-        screen.findByRole("textbox", {
-          name: "IP addresses *",
-        })
-      );
-
-      const visibleIpsField = await screen.getByRole("textbox", {
-        name: "IP addresses *",
-      });
-
-      await userEvent.type(visibleIpsField, "111.111.11.11{Enter}");
-      await waitFor(() => expect(visibleIpsField).toBeValid());
     });
   });
 });
