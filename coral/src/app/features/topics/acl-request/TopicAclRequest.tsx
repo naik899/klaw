@@ -68,7 +68,6 @@ const mockedData = [
 
 const TopicAclRequest = () => {
   const { topicName = "" } = useParams();
-  const navigate = useNavigate();
   const [topicType, setTopicType] = useState("Producer");
 
   useEffect(() => {
@@ -112,23 +111,38 @@ const TopicAclRequest = () => {
     },
   });
 
-  const { data: topicNames } = useQuery<TopicNames, Error>(["topic-names"], {
-    queryFn: () => getTopicNames({ onlyMyTeamTopics: false }),
-    keepPreviousData: true,
-    onSuccess: (data) => {
-      if (data?.includes(topicName)) {
-        return;
-      }
-      // Navigate back to Topics when topicName does not exist in the topics list
-      navigate("/topics");
-    },
-    enabled: topicName !== "",
-  });
-
   const { data: environments } = useQuery<Environment[], Error>(
     ["topic-environments"],
     {
       queryFn: getEnvironments,
+    }
+  );
+
+  const selectedEnvironment =
+    topicType === "Producer"
+      ? topicProducerForm.watch("environment")
+      : topicConsumerForm.watch("environment");
+  const { data: topicNames } = useQuery<TopicNames, Error>(
+    ["topic-names", topicType, selectedEnvironment],
+    {
+      queryFn: () => {
+        return getTopicNames({
+          onlyMyTeamTopics: false,
+          envSelected:
+            selectedEnvironment === ENVIRONMENT_NOT_INITIALIZED
+              ? "ALL"
+              : selectedEnvironment,
+        });
+      },
+      keepPreviousData: true,
+      onSuccess: (data) => {
+        if (!data?.includes(topicName)) {
+          topicType === "Producer"
+            ? topicProducerForm.resetField("topicname")
+            : topicConsumerForm.resetField("topicname");
+        }
+      },
+      enabled: topicName !== "",
     }
   );
 
@@ -142,10 +156,6 @@ const TopicAclRequest = () => {
       getTopicTeam({ topicName, patternType: selectedPatternType }),
     keepPreviousData: true,
   });
-  const selectedEnvironment =
-    topicType === "Producer"
-      ? topicProducerForm.watch("environment")
-      : topicConsumerForm.watch("environment");
   // We cast the type of selectedEnvironmentType to be Environment["type"]
   // Because there should be no case where this returns undefined
   // As an additional safety, this query is disabled when it *is* undefined
